@@ -244,7 +244,7 @@ EOT
 
             // template
             $defaultTemplate = $input->getOption('controller').':'.substr($actionName, 0, -6).'.html.'.$input->getOption('template-format');
-            $question = new Question($questionHelper->getQuestion('Templatename (optional)', $defaultTemplate), 'default');
+            $question = new Question($questionHelper->getQuestion('Template name (optional)', $defaultTemplate), 'default');
             $template = $questionHelper->ask($input, $output, $question);
 
             // adding action
