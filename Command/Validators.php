@@ -10,6 +10,10 @@
  */
 
 namespace Sensio\Bundle\GeneratorBundle\Command;
+use Symfony\Component\Validator\Constraints\Callback;
+use Symfony\Component\Validator\Constraints\Regex;
+use Symfony\Component\Validator\Context\ExecutionContextInterface;
+use Symfony\Component\Validator\Validation;
 
 /**
  * Validator functions.
@@ -31,30 +35,48 @@ class Validators
      */
     public static function validateBundleNamespace($namespace, $requireVendorNamespace = true)
     {
-        if (!preg_match('/Bundle$/', $namespace)) {
-            throw new \InvalidArgumentException('The namespace must end with Bundle.');
-        }
-
         $namespace = strtr($namespace, '/', '\\');
-        if (!preg_match('/^(?:[a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*\\\?)+$/', $namespace)) {
-            throw new \InvalidArgumentException('The namespace contains invalid characters.');
-        }
+        $constraints = array();
 
-        // validate reserved keywords
+        $constraints[] = new Regex(array(
+            'pattern' => '/Bundle$/',
+            'message' => 'The namespace must end with Bundle.')
+        );
+
+        $constraints[] = new Regex(array(
+            'pattern' => '/^(?:[a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*\\\?)+$/',
+            'message' => 'The namespace contains invalid characters.'
+        ));
+
         $reserved = self::getReservedWords();
-        foreach (explode('\\', $namespace) as $word) {
-            if (in_array(strtolower($word), $reserved)) {
-                throw new \InvalidArgumentException(sprintf('The namespace cannot contain PHP reserved words ("%s").', $word));
+        $constraints[] = new Callback(array('callback' => function($namespace, ExecutionContextInterface $context) use ($reserved) {
+            // validate reserved keywords
+            $parts =  explode('\\', $namespace);
+            while(!empty($parts) && count($context->getViolations()) === 0) {
+                $word = array_shift($parts);
+                if (in_array(strtolower($word), $reserved)) {
+                    $context
+                        ->buildViolation(sprintf('The namespace cannot contain PHP reserved words ("%s").', $word))
+                        ->addViolation();
+                }
             }
-        }
+        }));
 
-        // validate that the namespace is at least one level deep
-        if ($requireVendorNamespace && false === strpos($namespace, '\\')) {
-            $msg = array();
-            $msg[] = sprintf('The namespace must contain a vendor namespace (e.g. "VendorName\%s" instead of simply "%s").', $namespace, $namespace);
-            $msg[] = 'If you\'ve specified a vendor namespace, did you forget to surround it with quotes (init:bundle "Acme\BlogBundle")?';
+        $constraints[] = new Callback(array('callback' => function($namespace, ExecutionContextInterface $context) use ($requireVendorNamespace) {
+            if($requireVendorNamespace && strpos($namespace, '\\') === false) {
+                $context
+                    ->buildViolation(
+                        sprintf('The namespace must contain a vendor namespace (e.g. "VendorName\$1%s" instead of simply "$1%s").', $namespace)."\n\n".
+                        'If you\'ve specified a vendor namespace, did you forget to surround it with quotes (init:bundle "Acme\BlogBundle")?'
+                    )
+                    ->addViolation();
+            }
+        }));
+        $validator = Validation::createValidator();
+        $violations = $validator->validate($namespace, $constraints);
 
-            throw new \InvalidArgumentException(implode("\n\n", $msg));
+        if ($violations->count()) {
+            throw new \InvalidArgumentException($violations->get(0));
         }
 
         return $namespace;
